@@ -7,7 +7,7 @@ import boto3
 client = boto3.client("s3")
 
 
-@st.experimental_memo(ttl=60)
+@st.experimental_memo(ttl=600)
 def read_file(username):
     local_filename = f"{username}.csv"
     client.download_file(
