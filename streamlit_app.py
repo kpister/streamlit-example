@@ -1,38 +1,86 @@
-from collections import namedtuple
-import altair as alt
-import math
+from plotly.graph_objs import Layout, layout
+import plotly.graph_objects as go
 import pandas as pd
 import streamlit as st
+import boto3
 
-"""
-# Welcome to Streamlit!
-
-Edit `/streamlit_app.py` to customize this app to your heart's desire :heart:
-
-If you have any questions, checkout our [documentation](https://docs.streamlit.io) and [community
-forums](https://discuss.streamlit.io).
-
-In the meantime, below is an example of what you can do with just a few lines of code:
-"""
+client = boto3.client("s3")
 
 
-with st.echo(code_location='below'):
-    total_points = st.slider("Number of points in spiral", 1, 5000, 2000)
-    num_turns = st.slider("Number of turns in spiral", 1, 100, 9)
+@st.experimental_memo(ttl=60)
+def read_file(username):
+    local_filename = f"{username}.csv"
+    client.download_file(
+        "data.sapling.gg", f"data-points/{username}.csv", local_filename
+    )
+    return local_filename
 
-    Point = namedtuple('Point', 'x y')
-    data = []
 
-    points_per_turn = total_points / num_turns
+def check_password():
+    """Returns `True` if the user had a correct password."""
 
-    for curr_point_num in range(total_points):
-        curr_turn, i = divmod(curr_point_num, points_per_turn)
-        angle = (curr_turn + 1) * 2 * math.pi * i / points_per_turn
-        radius = curr_point_num / total_points
-        x = radius * math.cos(angle)
-        y = radius * math.sin(angle)
-        data.append(Point(x, y))
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if (
+            st.session_state["username"] in st.secrets["passwords"]
+            and st.session_state["password"]
+            == st.secrets["passwords"][st.session_state["username"]]
+        ):
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # don't store username + password
+        else:
+            st.session_state["password_correct"] = False
 
-    st.altair_chart(alt.Chart(pd.DataFrame(data), height=500, width=500)
-        .mark_circle(color='#0068c9', opacity=0.5)
-        .encode(x='x:Q', y='y:Q'))
+    if "password_correct" not in st.session_state:
+        # First run, show inputs for username + password.
+        st.text_input("Username", on_change=password_entered, key="username")
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key="password"
+        )
+        return False
+    elif not st.session_state["password_correct"]:
+        # Password not correct, show input + error.
+        st.text_input("Username", on_change=password_entered, key="username")
+        st.text_input(
+            "Password", type="password", on_change=password_entered, key="password"
+        )
+        st.error("😕 User not known or password incorrect")
+        return False
+    else:
+        # Password correct.
+        return True
+
+
+def run(local_filename):
+    df = pd.read_csv(local_filename)
+
+    fig = go.Figure(
+        data=[
+            go.Scatter3d(
+                x=df.x,
+                y=df.y,
+                z=df.z,
+                mode="markers",
+                marker=dict(size=1),
+                showlegend=False,
+            )
+        ],
+        layout=Layout(
+            scene=dict(
+                xaxis=dict(visible=False),
+                yaxis=dict(visible=False),
+                zaxis=dict(visible=False),
+                aspectratio=dict(x=1, y=0.4, z=1),
+            ),
+        ),
+    )
+    st.plotly_chart(fig)
+
+
+if check_password():
+    if "username" in st.session_state:
+        username = st.session_state["username"]
+        st.write(username)
+        local_filename = read_file(username)
+        run(local_filename)
+        st.session_state["username"] = username
